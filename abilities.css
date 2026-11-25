@@ -61,6 +61,8 @@
 .abil-chip.armed { background: var(--ac); color: #14161b; animation: chipArmed 1s ease-in-out infinite; }
 @keyframes chipArmed { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ac) 35%, transparent), 0 0 22px var(--ac); } }
 .abil-chip.spent { opacity: .38; filter: grayscale(.7); }
+.abil-chip.cooling { opacity: .6; }
+.abil-chip .cd { font-size: 12px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .abil-chip.flash { animation: chipFlash .8s ease-out; }
 @keyframes chipFlash { 0% { transform: scale(1.25); box-shadow: 0 0 30px var(--ac); background: var(--ac); color: #14161b; } }
 @media (max-width: 400px) {

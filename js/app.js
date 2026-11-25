@@ -511,16 +511,19 @@
     const passive = Chess.ABILITIES[id].passive;
     const total = Chess.ABILITIES[id].uses;
     const left = g.uses[color];
+    const cd = g.cd[color];
     let uses = '';
-    if (passive) uses = '<span class="inf">∞</span>';
+    if (cd > 0) uses = `<span class="cd" title="Перезарядка">⏳${cd}</span>`;
+    else if (passive || !isFinite(total)) uses = '<span class="inf">∞</span>';
     else for (let i = 0; i < total; i++) uses += `<i class="${i < left ? '' : 'off'}"></i>`;
     chip.innerHTML = `<svg><use href="#a-${id}"/></svg><span>${u.name}</span><span class="uses">${uses}</span>`;
+    chip.classList.toggle('cooling', cd > 0);
     chip.style.setProperty('--ac', u.color);
     chip.dataset.color = color;
     const myTurn = !S.result && g.turn === color && controlsColor(color) && canInteract();
     chip.classList.toggle('spent', !passive && left <= 0);
     chip.classList.toggle('armed', S.armed === id && g.turn === color);
-    chip.classList.toggle('usable', myTurn && !passive && left > 0 && S.armed !== id);
+    chip.classList.toggle('usable', myTurn && !passive && left > 0 && cd === 0 && S.armed !== id);
   }
 
   function renderPanels() {
@@ -633,6 +636,12 @@
     const id = g.abilityOf(color);
     if (!id) return;
     const canUse = !S.result && g.turn === color && controlsColor(color) && canInteract();
+    if (canUse && g.cd[color] > 0) {
+      const n = g.cd[color];
+      const word = n === 1 ? 'ход' : n < 5 ? 'хода' : 'ходов';
+      toast(`${ABIL_UI[id].name} перезаряжается: ещё ${n} ${word}`);
+      return;
+    }
     if (!canUse || Chess.ABILITIES[id].passive || g.uses[color] <= 0) { abilityInfo(id, color); return; }
     if (S.armed === id) { disarm(); return; }
     if (id === 'lullaby') {

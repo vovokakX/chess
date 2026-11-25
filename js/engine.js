@@ -6,10 +6,12 @@
  * Способности (у каждого игрока одна, см. ABILITIES):
  *   necro    — Некромант: ставит свою пешку на свой 2-й ряд (3 раза)
  *   runner   — Бегун: пешка прыгает ровно на 4 клетки по прямой (1 раз)
- *   tsar     — Царь: король отбрасывает фигуры в радиусе 2 (1 раз)
- *   kamikaze — Камикадзе: пешка ходит как ферзь на 1–2 клетки, при атаке взрывается вместе с целью (1 раз)
+ *   tsar     — Царь: король отбрасывает фигуры в радиусе 2 (без ограничений, перезарядка 6 своих ходов)
+ *   kamikaze — Камикадзе: пешка ходит как ферзь на 1–2 клетки, при атаке взрывается вместе с целью (3 раза)
  *   lullaby  — Колыбельная: соперник пропускает ход (1 раз)
- *   vampire  — Вампир: пешка съела пешку → рядом появляется своя пешка (пассивно)
+ *   vampire  — Вампир: пешка съела пешку → рядом появляется своя пешка (пассивно, перезарядка 7 своих ходов)
+ *
+ * Перезарядка (cd) — сколько своих ходов осталось ждать до следующего применения.
  *
  * Любое действие описывается компактным «дескриптором» {k, f, t, p, l}
  * (вид, откуда, куда, превращение, колыбельная) — так ходы передаются по сети и боту.
@@ -28,10 +30,10 @@
   const ABILITIES = {
     necro: { uses: 3 },
     runner: { uses: 1 },
-    tsar: { uses: 1 },
-    kamikaze: { uses: 1 },
+    tsar: { uses: Infinity, cooldown: 6 },
+    kamikaze: { uses: 3 },
     lullaby: { uses: 1 },
-    vampire: { uses: 0, passive: true },
+    vampire: { uses: 0, passive: true, cooldown: 7 },
   };
   const ABILITY_IDS = Object.keys(ABILITIES);
 
@@ -71,6 +73,7 @@
         w: this.abil ? ABILITIES[this.abil.w].uses : 0,
         b: this.abil ? ABILITIES[this.abil.b].uses : 0,
       };
+      this.cd = { w: 0, b: 0 };
       this.history = [];
       this._stack = [];
       this.rep = new Map();
@@ -103,7 +106,7 @@
     _key() {
       let s = '';
       for (let i = 0; i < 64; i++) s += this.board[i] || '..';
-      return s + this.turn + this._castStr() + this.ep + '|' + this.uses.w + this.uses.b;
+      return s + this.turn + this._castStr() + this.ep + '|' + this.uses.w + this.uses.b + '|' + this.cd.w + this.cd.b;
     }
 
     _bumpRep(d) {
@@ -162,7 +165,7 @@
     pseudoMoves(color = this.turn, capturesOnly = false) {
       const b = this.board, out = [];
       const enemy = opp(color);
-      const vampire = this.abil && this.abil[color] === 'vampire';
+      const vampire = this.abil && this.abil[color] === 'vampire' && this.cd[color] === 0;
       const add = (from, to, p, flag = '', cap = b[to]) => {
         if (capturesOnly && !cap) return;
         out.push({ from, to, p, cap: cap || null, promo: null, flag });
@@ -290,13 +293,13 @@
     abilityOf(color) { return this.abil ? this.abil[color] : null; }
 
     canLull(color = this.turn) {
-      return this.abilityOf(color) === 'lullaby' && this.uses[color] > 0;
+      return this.abilityOf(color) === 'lullaby' && this.uses[color] > 0 && this.cd[color] === 0;
     }
 
     /** Активные способности стороны: список легальных действий */
     abilityMoves(color = this.turn) {
       const id = this.abilityOf(color);
-      if (!id || ABILITIES[id].passive || id === 'lullaby' || !(this.uses[color] > 0)) return [];
+      if (!id || ABILITIES[id].passive || id === 'lullaby' || !(this.uses[color] > 0) || this.cd[color] > 0) return [];
       const b = this.board, enemy = opp(color), P = color + 'P';
       const backRow = color === 'w' ? 7 : 0, promoRow = color === 'w' ? 0 : 7;
       const land = (to) => ((to >> 3) === promoRow ? color + 'Q' : P);
@@ -388,11 +391,17 @@
       this._stack.push({
         K: this.castling.K, Q: this.castling.Q, k: this.castling.k, q: this.castling.q,
         ep: this.ep, half: this.half, full: this.full, uw: this.uses.w, ub: this.uses.b, turn: this.turn,
+        cw: this.cd.w, cb: this.cd.b,
       });
+
+      // перезарядка тикает с каждым своим ходом
+      if (this.cd[color] > 0) this.cd[color]--;
+      const cdAfterUse = this.abil ? ABILITIES[this.abil[color]].cooldown || 0 : 0;
 
       if (m.kind) {
         for (const d of m.diff) b[d[0]] = d[2];
         this.uses[color]--;
+        if (cdAfterUse) this.cd[color] = cdAfterUse;
         this.ep = -1;
         this.half = 0;
       } else {
@@ -401,7 +410,7 @@
         if (m.flag === 'e') b[m.to + (color === 'w' ? 8 : -8)] = null;
         else if (m.flag === 'k') { const rf = color === 'w' ? 63 : 7; b[rf - 2] = b[rf]; b[rf] = null; }
         else if (m.flag === 'q') { const rf = color === 'w' ? 56 : 0; b[rf + 3] = b[rf]; b[rf] = null; }
-        if (m.vamp >= 0) b[m.vamp] = color + 'P';
+        if (m.vamp >= 0) { b[m.vamp] = color + 'P'; if (cdAfterUse) this.cd[color] = cdAfterUse; }
         if (m.p[1] === 'K') this.kings[color] = m.to;
         this.ep = m.flag === 'd' ? (m.from + m.to) >> 1 : -1;
         this.half = m.p[1] === 'P' || m.cap ? 0 : this.half + 1;
@@ -433,6 +442,7 @@
       this.castling = { K: st.K, Q: st.Q, k: st.k, q: st.q };
       this.ep = st.ep; this.half = st.half; this.full = st.full;
       this.uses.w = st.uw; this.uses.b = st.ub;
+      this.cd.w = st.cw; this.cd.b = st.cb;
       this.turn = st.turn;
 
       if (m.kind) {
