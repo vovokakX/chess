@@ -1,5 +1,5 @@
 /* Офлайн-кэш: сначала сеть (чтобы обновления приходили сразу), при отсутствии сети — кэш. */
-const CACHE = 'chessplus-v3';
+const CACHE = 'chessplus-v4';
 const FILES = [
   './', 'index.html', 'style.css', 'abilities.css', 'manifest.json',
   'js/engine.js', 'js/ai.js', 'js/ai-worker.js', 'js/net.js', 'js/app.js', 'js/fx.js', 'js/peerjs.min.js',

@@ -40,6 +40,31 @@
       desc: 'Работает сам: когда твоя пешка съедает пешку, рядом появляется ещё одна твоя пешка. После этого вампир отдыхает 7 твоих ходов.',
       hint: '',
     },
+    berserk: {
+      name: 'Берсерк', color: '#ff3b3b', short: 'Ладья бьёт и ходит снова · 2 раза',
+      desc: 'Включи и возьми фигуру ладьёй — эта же ладья сразу сходит ещё раз. Если взятие объявило шах, второго хода нет, а способность не тратится. 2 раза за игру.',
+      hint: 'возьми фигуру ладьёй',
+    },
+    double: {
+      name: 'Двойник', color: '#5ee6d0', short: 'Король меняется местами · 1 раз',
+      desc: 'Король меняется местами с любой своей фигурой. Вставать под шах нельзя. Тратит ход. 1 раз за игру.',
+      hint: 'выбери фигуру для обмена',
+    },
+    jester: {
+      name: 'Шут', color: '#f272d6', short: 'Фигура врага — как пешка · перезарядка 7',
+      desc: 'Выбери вражескую фигуру (не короля) и сделай свой ход. В следующий ход соперник сможет двигать её только на 1 клетку вперёд и без взятия. Ход не тратится. Перезарядка — 7 твоих ходов.',
+      hint: 'выбери фигуру соперника', hint2: 'теперь сделай ход',
+    },
+    storm: {
+      name: 'Буря', color: '#9fc2e8', short: 'Сдвигает целый ряд · 1 раз',
+      desc: 'Выбери горизонталь и сторону: все фигуры на ней сдвинутся на 1 клетку по ветру, крайние упрутся в край. Тратит ход. 1 раз за игру.',
+      hint: 'выбери горизонталь', hint2: 'нажми на край ряда',
+    },
+    blackhole: {
+      name: 'Чёрная дыра', color: '#d9d2ff', short: 'Клетка-ловушка · 1 раз',
+      desc: 'Выбери пустую клетку и сделай свой ход. 4 хода каждого игрока на её месте будет дыра: любая фигура, кроме короля, которая туда встанет или будет туда сдвинута, исчезнет. Королям туда нельзя. Ход не тратится. 1 раз за игру.',
+      hint: 'выбери пустую клетку', hint2: 'теперь сделай ход',
+    },
   };
 
   /* ---------- эффекты на доске ---------- */
@@ -85,6 +110,22 @@
           { transform: `translate(${dx * 0.7}px, ${dy * 0.7}px) scale(.9)`, opacity: 1, offset: 0.55 },
           { transform: `translate(${dx}px, ${dy + gravity * s}px) scale(.15)`, opacity: 0 },
         ], { duration: dur * rand(0.7, 1.3), delay: delay + rand(0, 80), easing: 'cubic-bezier(.15,.7,.3,1)' });
+      }
+    }
+
+    /** Частицы, которые засасывает в клетку */
+    function implode(sq, { colors = ['#fff'], n = 18, dist = 1.4, size = 0.1, dur = 800, delay = 0 } = {}) {
+      const s = S(), c = center(sq);
+      for (let i = 0; i < n; i++) {
+        const a = rand(0, Math.PI * 2), d = dist * s * rand(0.6, 1);
+        const sz = size * s * rand(0.6, 1.3), col = pick(colors);
+        const p = el('fx-p', c.x, c.y, sz, sz, { background: col, boxShadow: `0 0 ${sz}px ${col}`, opacity: 0 });
+        const dx = Math.cos(a) * d, dy = Math.sin(a) * d;
+        anim(p, [
+          { transform: `translate(${dx}px, ${dy}px) scale(1)`, opacity: 0 },
+          { transform: `translate(${dx * 0.6}px, ${dy * 0.6}px) rotate(90deg) scale(1)`, opacity: 1, offset: 0.3 },
+          { transform: 'translate(0,0) rotate(220deg) scale(.1)', opacity: 0.2 },
+        ], { duration: dur * rand(0.7, 1.2), delay: delay + rand(0, 200), easing: 'cubic-bezier(.5,0,.8,.4)' });
       }
     }
 
@@ -170,11 +211,11 @@
       frameEl.animate(k, { duration: dur, easing: 'linear' });
     }
 
-    return { center, particles, ring, flash, trail, zzz, icon, night, shake, size: S };
+    return { center, particles, implode, ring, flash, trail, zzz, icon, night, shake, size: S };
   }
 
   /* ---------- колесо фортуны ---------- */
-  const WHEEL_ORDER = ['necro', 'runner', 'tsar', 'kamikaze', 'lullaby', 'vampire'];
+  const WHEEL_ORDER = ['necro', 'berserk', 'runner', 'jester', 'tsar', 'storm', 'kamikaze', 'double', 'lullaby', 'blackhole', 'vampire'];
 
   function wheelSvg() {
     const R = 150, n = WHEEL_ORDER.length, seg = 360 / n;
@@ -187,13 +228,13 @@
       const a0 = i * seg - seg / 2, a1 = a0 + seg;
       const [x0, y0] = pt(a0, R), [x1, y1] = pt(a1, R);
       const col = ABIL_UI[id].color;
-      parts += `<path d="M0 0 L${x0.toFixed(2)} ${y0.toFixed(2)} A${R} ${R} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="url(#wg-${id})" stroke="#14161b" stroke-width="3"/>`;
+      parts += `<path d="M0 0 L${x0.toFixed(2)} ${y0.toFixed(2)} A${R} ${R} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="url(#wg-${id})" stroke="#14161b" stroke-width="2.5"/>`;
       const mid = i * seg;
-      const [ix, iy] = pt(mid, R * 0.83);
-      const [tx, ty] = pt(mid, R * 0.45);
-      parts += `<g transform="translate(${ix.toFixed(2)} ${iy.toFixed(2)}) rotate(${mid})"><use href="#a-${id}" x="-14" y="-14" width="28" height="28" style="color:#14161b"/></g>`;
+      const [ix, iy] = pt(mid, R * 0.84);
+      const [tx, ty] = pt(mid, R * 0.5);
+      parts += `<g transform="translate(${ix.toFixed(2)} ${iy.toFixed(2)}) rotate(${mid})"><use href="#a-${id}" x="-12" y="-12" width="24" height="24" style="color:#14161b"/></g>`;
       // подпись вдоль радиуса — так длинные названия помещаются в сектор
-      parts += `<text transform="translate(${tx.toFixed(2)} ${ty.toFixed(2)}) rotate(${mid - 90})" text-anchor="middle" dominant-baseline="central" font-family="Inter, sans-serif" font-weight="800" font-size="${ABIL_UI[id].name.length > 9 ? 10.5 : 12.5}" fill="#14161b">${ABIL_UI[id].name}</text>`;
+      parts += `<text transform="translate(${tx.toFixed(2)} ${ty.toFixed(2)}) rotate(${mid - 90})" text-anchor="middle" dominant-baseline="central" font-family="Inter, sans-serif" font-weight="800" font-size="${ABIL_UI[id].name.length > 9 ? 9.5 : ABIL_UI[id].name.length > 6 ? 10.5 : 11.5}" fill="#14161b">${ABIL_UI[id].name}</text>`;
       void col;
     });
     const defs = WHEEL_ORDER.map((id) => {
@@ -203,7 +244,7 @@
     let pegs = '';
     for (let i = 0; i < n; i++) {
       const [x, y] = pt(i * seg - seg / 2, R - 7);
-      pegs += `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="4" fill="#ffe2a8" stroke="#14161b" stroke-width="1.5"/>`;
+      pegs += `<circle cx="${x.toFixed(2)}" cy="${y.toFixed(2)}" r="3.2" fill="#ffe2a8" stroke="#14161b" stroke-width="1.3"/>`;
     }
     return `<svg viewBox="-160 -160 320 320"><defs>${defs}</defs>
       <circle r="158" fill="#14161b"/><circle r="156" fill="none" stroke="#d9a95b" stroke-width="4"/>

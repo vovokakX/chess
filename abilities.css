@@ -153,3 +153,41 @@
 .modal.ability-info .ab-big { width: 64px; height: 64px; color: var(--ac); margin: 0 auto 8px; display: block; filter: drop-shadow(0 0 16px var(--ac)); }
 .modal.ability-info h3 { color: var(--ac); }
 .modal.ability-info .owner { font-size: 13px; color: var(--muted); margin: -2px 0 10px; }
+
+/* ---------- постоянные метки новых способностей ---------- */
+.marks { position: absolute; inset: 0; pointer-events: none; z-index: 18; }
+.mark-badge { position: absolute; left: 0; top: 0; width: 12.5%; height: 12.5%; }
+.mark-badge svg { position: absolute; right: 3%; top: 3%; width: 36%; height: 36%; filter: drop-shadow(0 0 4px rgba(0,0,0,.8)); }
+.mark-badge.jest svg { color: #f272d6; animation: jestBob 1.2s ease-in-out infinite; }
+@keyframes jestBob { 50% { transform: rotate(-14deg) translateY(-6%); } }
+.mark-badge.rage { border-radius: 10px; box-shadow: inset 0 0 0 3px #ff3b3b, inset 0 0 22px rgba(255,59,59,.7); animation: ragePulse .8s ease-in-out infinite; }
+@keyframes ragePulse { 50% { box-shadow: inset 0 0 0 3px #ff3b3b, inset 0 0 34px rgba(255,59,59,.95); } }
+.sq.jested { box-shadow: inset 0 0 0 3px #f272d6, inset 0 0 18px rgba(242,114,214,.55); }
+
+.hole-fx { position: absolute; inset: 5%; border-radius: 50%; z-index: 1; box-shadow: 0 0 16px rgba(150,120,255,.85); }
+.hole-fx::before {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(#0b0618, #6a52d9, #0b0618, #b9a8ff, #0b0618, #6a52d9, #0b0618);
+  animation: magicSpin 1.4s linear infinite; filter: blur(1.5px);
+}
+.hole-fx::after { content: ""; position: absolute; inset: 26%; border-radius: 50%; background: #000; box-shadow: 0 0 10px 5px #000; }
+.hole-fx span {
+  position: absolute; right: -10%; bottom: -10%; z-index: 2; min-width: 38%; padding: 1px 3px; text-align: center;
+  font-size: calc(var(--bs) / 48); font-weight: 800; line-height: 1.2; border-radius: 6px;
+  background: #14161b; color: #d9d2ff; border: 1px solid #6a52d9;
+}
+.hole-fx.preview { opacity: .6; animation: srcPulse 1s ease-in-out infinite; }
+
+.sq.abil-row::before { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--ac) 22%, transparent); }
+.sq.abil-edge-l::before, .sq.abil-edge-r::before { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--ac) 70%, transparent); }
+.mark-badge.storm-arrow { display: grid; place-items: center; }
+.mark-badge.storm-arrow b {
+  display: grid; place-items: center; width: 70%; height: 70%; border-radius: 50%;
+  font-size: calc(var(--bs) / 14); font-weight: 900; line-height: 1; color: #14161b;
+  background: #9fc2e8; box-shadow: 0 0 0 3px #fff, 0 0 18px #9fc2e8;
+}
+.mark-badge.storm-arrow.l b { animation: nudgeL .8s ease-in-out infinite; }
+.mark-badge.storm-arrow.r b { animation: nudgeR .8s ease-in-out infinite; }
+@keyframes nudgeL { 50% { transform: translateX(-12%); } }
+@keyframes nudgeR { 50% { transform: translateX(12%); } }
+@keyframes edgeNudge { 50% { opacity: .7; } }

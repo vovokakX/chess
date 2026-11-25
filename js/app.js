@@ -85,6 +85,12 @@
       kamikazeDash: () => noise(0, 0.25, { f0: 600, f1: 2500, Q: 2, gain: 1.2, decay: 1.5 }),
       lullaby: () => [659, 587, 523, 494, 440].forEach((f, i) => tone(0.1 + i * 0.22, f, 0.5, 0.06, 'sine')),
       vampire: () => { tone(0, 220, 0.6, 0.06, 'sawtooth'); tone(0, 233, 0.6, 0.05, 'sawtooth'); tone(0.1, 1760, 0.25, 0.03, 'sine', 880); },
+      berserk: () => { tone(0, 95, 0.6, 0.22, 'sawtooth', 55); noise(0, 0.5, { type: 'lowpass', f0: 700, f1: 150, gain: 1.6, decay: 2 }); knock(0.05, 500, 2, 0.12); },
+      double: () => { noise(0, 0.5, { f0: 2400, f1: 500, Q: 1.5, gain: 1, decay: 1.5 }); tone(0.3, 880, 0.4, 0.05, 'sine'); tone(0.38, 1320, 0.4, 0.04, 'sine'); },
+      jester: () => [1568, 1976, 1760, 2349].forEach((f, i) => tone(i * 0.07, f, 0.25, 0.04, 'triangle')),
+      storm: () => { noise(0, 1.1, { type: 'bandpass', f0: 300, f1: 1400, Q: 0.8, gain: 1.8, decay: 1 }); noise(0.2, 0.8, { type: 'bandpass', f0: 1600, f1: 500, Q: 1, gain: 0.8, decay: 1.2 }); },
+      hole: () => { tone(0, 300, 1.1, 0.18, 'sine', 40); noise(0, 1, { type: 'lowpass', f0: 3000, f1: 100, gain: 1, decay: 1.5 }); },
+      swallow: () => tone(0, 600, 0.6, 0.12, 'sine', 60),
     };
     return { play(k) { if (!settings.sound) return; try { kinds[k] && kinds[k](); } catch (_) {} } };
   })();
@@ -189,6 +195,7 @@
     armed: null,         // id способности, которую сейчас применяем
     abilFrom: -1,        // выбранная пешка для Бегуна / Камикадзе
     abilActs: [],
+    prep: null,          // {j} или {h} — выбранная цель Шута / Чёрной дыры
     sleepNote: false,
     wheelOpen: false,
     // сеть
@@ -231,10 +238,31 @@
   /** Подсветка клеток для выбранной способности */
   function abilityMarks() {
     const marks = new Map();
-    if (!S.armed || S.armed === 'lullaby') return marks;
+    const id = S.armed;
+    if (!id || id === 'lullaby' || id === 'berserk' || id === 'blackhole') return marks;
+    const g = S.game;
+    if (id === 'jester') {
+      if (S.prep) marks.set(S.prep.j, 'abil-picked');
+      else g.board.forEach((p, sq) => { if (p && p[0] !== g.turn && p[1] !== 'K') marks.set(sq, 'abil-src'); });
+      return marks;
+    }
     const acts = S.abilActs;
-    if (S.armed === 'necro') acts.forEach((m) => marks.set(m.to, 'abil-target'));
-    else if (S.armed === 'tsar') {
+    if (id === 'necro') acts.forEach((m) => marks.set(m.to, 'abil-target'));
+    else if (id === 'double') {
+      marks.set(g.kings[g.turn], 'abil-src');
+      acts.forEach((m) => marks.set(m.to, 'abil-target'));
+    } else if (id === 'storm') {
+      if (S.abilFrom < 0) {
+        acts.forEach((m) => { for (let c = 0; c < 8; c++) marks.set(m.from * 8 + c, 'abil-row'); });
+      } else {
+        const row = S.abilFrom;
+        for (let c = 0; c < 8; c++) marks.set(row * 8 + c, 'abil-row');
+        for (const m of acts.filter((x) => x.from === row)) {
+          const edge = row * 8 + (m.to > 0 ? 7 : 0);
+          marks.set(edge, toDisplay(edge).c === 0 ? 'abil-edge-l' : 'abil-edge-r');
+        }
+      }
+    } else if (id === 'tsar') {
       if (acts[0]) {
         marks.set(acts[0].from, 'abil-src');
         acts[0].pushes.forEach((p) => marks.set(p.from, 'abil-push'));
@@ -248,12 +276,38 @@
     return marks;
   }
 
+  /** Значки поверх фигур: колпак Шута, ярость Берсерка */
+  let marksEl = null;
+  function renderMarks() {
+    if (!marksEl) {
+      marksEl = document.createElement('div');
+      marksEl.className = 'marks';
+      boardEl.insertBefore(marksEl, $('#fx'));
+    }
+    const g = S.game;
+    const badge = (sq, cls, icon) => `<div class="mark-badge ${cls}" style="transform:${T(sq)}">${icon ? `<svg><use href="#${icon}"/></svg>` : ''}</div>`;
+    let html = '';
+    const j = g.jest >= 0 ? g.jest : (S.prep && S.prep.j >= 0 ? S.prep.j : -1);
+    if (j >= 0) html += badge(j, 'jest', 'a-jester');
+    if (g.lock >= 0) html += badge(g.lock, 'rage', '');
+    // Буря: большие стрелки на краях выбранного ряда — поверх фигур
+    if (S.armed === 'storm' && S.abilFrom >= 0) {
+      for (const m of S.abilActs.filter((x) => x.from === S.abilFrom)) {
+        const edge = S.abilFrom * 8 + (m.to > 0 ? 7 : 0);
+        const left = toDisplay(edge).c === 0;
+        html += `<div class="mark-badge storm-arrow ${left ? 'l' : 'r'}" style="transform:${T(edge)}"><b>${left ? '\u2190' : '\u2192'}</b></div>`;
+      }
+    }
+    marksEl.innerHTML = html;
+  }
+
   function renderSquares() {
     const g = S.game;
     const last = g.history[g.history.length - 1];
     const lastSq = new Set();
     if (last) {
       if (last.kind === 'tsar') lastSq.add(last.from);
+      else if (last.kind === 'storm') last.pushes.forEach((p) => lastSq.add(p.to));
       else { if (last.from >= 0) lastSq.add(last.from); if (last.to >= 0) lastSq.add(last.to); }
     }
     const checkSq = g.inCheck() ? g.kings[g.turn] : -1;
@@ -273,12 +327,17 @@
         const mk = marks.get(sq);
         if (mk) cls.push(mk);
         let coords = '';
+        const hole = g.holes.find((h) => h.sq === sq);
+        if (hole) coords += `<div class="hole-fx" title="Чёрная дыра"><span>${Math.ceil(hole.ttl / 2)}</span></div>`;
+        else if (S.prep && S.prep.h === sq) coords += '<div class="hole-fx preview"></div>';
+        if (sq === g.jest || (S.prep && S.prep.j === sq)) cls.push('jested');
         if (dc === 0) coords += `<span class="coord rank">${8 - r}</span>`;
         if (dr === 7) coords += `<span class="coord file">${'abcdefgh'[c]}</span>`;
         html += `<div class="${cls.join(' ')}" data-sq="${sq}">${coords}</div>`;
       }
     }
     squaresEl.innerHTML = html;
+    renderMarks();
     // рамка доски светится цветом активной способности
     const armedColor = S.armed ? ABIL_UI[S.armed].color : null;
     frameEl.classList.toggle('armed', !!armedColor);
@@ -416,6 +475,49 @@
       return;
     }
 
+    if (mv.kind === 'double') {
+      const kEl = S.pieceEls[mv.to], oEl = S.pieceEls[mv.from];
+      const gk = ghost(mv.p, mv.from), go = ghost(S.game.board[mv.from], mv.to);
+      [[gk, mv.from], [go, mv.to]].forEach(([el, sq]) => {
+        el.animate([{ opacity: 1, transform: T(sq), filter: 'blur(0)' }, { opacity: 0, transform: `${T(sq)} scale(1.3)`, filter: 'blur(6px)' }], { duration: 420, fill: 'forwards' }).onfinish = () => el.remove();
+      });
+      [[kEl, mv.to], [oEl, mv.from]].forEach(([el, sq]) => {
+        if (el) el.animate([
+          { opacity: 0, transform: `${T(sq)} scale(.5)`, filter: `blur(6px) drop-shadow(0 0 12px ${col})` },
+          { opacity: 0, transform: `${T(sq)} scale(.5)`, filter: `blur(6px) drop-shadow(0 0 12px ${col})`, offset: 0.45 },
+          { opacity: 1, transform: T(sq), filter: 'blur(0) drop-shadow(0 0 0 transparent)' },
+        ], { duration: 820, easing: 'ease-out' });
+      });
+      for (const sq of [mv.from, mv.to]) {
+        FX.particles(sq, { colors: ['#9aa3ad', '#c9d1d9', col], n: 16, dist: 0.6, size: 0.22, dur: 1000, rise: 0.4, glow: false });
+        FX.ring(sq, col, { scale: 2, delay: 320 });
+      }
+      FX.trail(mv.from, mv.to, col, { n: 10, dur: 350, arc: 0.4 });
+      return;
+    }
+
+    if (mv.kind === 'storm') {
+      const row = mv.from, dir = mv.to;
+      const a = row * 8 + (dir > 0 ? 0 : 7), b = row * 8 + (dir > 0 ? 7 : 0);
+      FX.trail(a, b, col, { n: 18, dur: 350 });
+      setTimeout(() => FX.trail(a, b, '#ffffff', { n: 12, dur: 300 }), 120);
+      for (const p of mv.pushes) {
+        const el = S.pieceEls[p.to];
+        if (el) el.animate([
+          { transform: T(p.from) },
+          { transform: T(p.from), offset: 0.15 },
+          { transform: `${T(p.to)} rotate(${dir * 14}deg)`, offset: 0.7 },
+          { transform: T(p.to) },
+        ], { duration: 720, easing: 'cubic-bezier(.3,1.3,.5,1)' });
+      }
+      for (let i = 0; i < 8; i++) {
+        const c = dir > 0 ? i : 7 - i;
+        setTimeout(() => FX.particles(row * 8 + c, { colors: ['#7fbf6a', '#b5d99c', '#e8f2ff'], n: 3, dist: 0.5, size: 0.08, glow: false, dur: 700 }), 55 * i);
+      }
+      FX.shake(4, 400);
+      return;
+    }
+
     if (mv.kind === 'tsar') {
       const king = S.pieceEls[mv.from];
       if (king) king.animate([
@@ -475,6 +577,63 @@
         { transform: T(kingSq) },
       ], { duration: 1800, easing: 'ease-in-out' });
     }, 220);
+  }
+
+  function berserkFx(mv) {
+    const col = ABIL_UI.berserk.color;
+    setTimeout(() => {
+      const el = S.pieceEls[mv.to];
+      if (el) el.animate([
+        { transform: T(mv.to), filter: 'none' },
+        { transform: `${T(mv.to)} scale(1.3) rotate(-6deg)`, filter: `drop-shadow(0 0 14px ${col}) brightness(1.2)`, offset: 0.3 },
+        { transform: `${T(mv.to)} scale(1.15) rotate(6deg)`, offset: 0.6 },
+        { transform: T(mv.to), filter: 'none' },
+      ], { duration: 700 });
+      FX.flash(mv.to, col, { size: 2.2 });
+      FX.particles(mv.to, { colors: [col, '#ff9b8a', '#7a0000'], n: 24, dist: 1, size: 0.11 });
+      FX.icon(mv.to, 'a-berserk', col);
+      FX.shake(7, 450);
+    }, 200);
+  }
+
+  function jesterFx(sq) {
+    const col = ABIL_UI.jester.color;
+    setTimeout(() => {
+      FX.icon(sq, 'a-jester', col, { size: 1.1 });
+      FX.particles(sq, { colors: ['#f272d6', '#ffd23f', '#6cc6ff', '#7be0a1'], n: 26, dist: 1, size: 0.09, gravity: 0.5, dur: 1000 });
+      const el = S.pieceEls[sq];
+      if (el) el.animate([
+        { transform: T(sq) },
+        { transform: `${T(sq)} rotate(-15deg)`, offset: 0.25 },
+        { transform: `${T(sq)} rotate(15deg)`, offset: 0.5 },
+        { transform: `${T(sq)} rotate(-8deg)`, offset: 0.75 },
+        { transform: T(sq) },
+      ], { duration: 900 });
+    }, 220);
+  }
+
+  function holeFx(sq) {
+    const col = ABIL_UI.blackhole.color;
+    FX.implode(sq, { colors: [col, '#6a52d9', '#ffffff'], n: 26, dist: 1.8, dur: 900 });
+    FX.ring(sq, '#6a52d9', { scale: 3, dur: 700 });
+    FX.flash(sq, '#6a52d9', { size: 2.4 });
+    FX.shake(3, 350);
+  }
+
+  function swallowFx(mv) {
+    for (const s of mv.swallow) {
+      let from = s.sq;
+      if (!mv.kind) from = mv.from;
+      else if (mv.pushes) { const p = mv.pushes.find((x) => x.to === s.sq); if (p) from = p.from; }
+      else if (mv.from >= 0) from = mv.from;
+      const gh = ghost(s.p, from);
+      gh.animate([
+        { transform: T(from), opacity: 1, filter: 'brightness(1)' },
+        { transform: T(s.sq), opacity: 1, filter: 'brightness(1)', offset: 0.35 },
+        { transform: `${T(s.sq)} rotate(540deg) scale(.05)`, opacity: 0, filter: 'brightness(.2)' },
+      ], { duration: 1000, easing: 'ease-in', fill: 'forwards' }).onfinish = () => gh.remove();
+      setTimeout(() => { FX.implode(s.sq, { colors: ['#d9d2ff', '#6a52d9'], n: 16, dist: 1, dur: 600 }); Sound.play('swallow'); }, 300);
+    }
   }
 
   /* ================= Панели игроков, статус, ходы ================= */
@@ -554,7 +713,10 @@
       const u = ABIL_UI[S.armed];
       let hint = u.hint;
       if ((S.armed === 'runner' || S.armed === 'kamikaze') && S.abilFrom >= 0) hint = 'куда?';
+      if ((S.armed === 'storm' && S.abilFrom >= 0) || (S.prep && u.hint2)) hint = u.hint2;
       txt.textContent = `${u.name}: ${hint}`;
+    } else if (g.lock >= 0 && (S.mode === 'local' || g.turn === S.myColor)) {
+      txt.textContent = 'Берсерк: ладья ходит ещё раз!';
     } else {
       const check = g.inCheck();
       if (check) st.classList.add('check');
@@ -585,7 +747,7 @@
     const cells = [];
     for (let i = 0; i < h.length; i++) {
       const prev = h[i - 1];
-      if (prev && prev.slept && prev.color === h[i].color) cells[cells.length - 1].san += ' ' + h[i].san;
+      if (prev && (prev.slept || prev.rage) && prev.color === h[i].color) cells[cells.length - 1].san += ' ' + h[i].san;
       else cells.push({ san: h[i].san, color: h[i].color });
     }
     let html = '', n = 1;
@@ -626,6 +788,7 @@
     S.armed = null;
     S.abilFrom = -1;
     S.abilActs = [];
+    S.prep = null;
     renderSquares();
     renderPanels();
   }
@@ -644,17 +807,18 @@
     }
     if (!canUse || Chess.ABILITIES[id].passive || g.uses[color] <= 0) { abilityInfo(id, color); return; }
     if (S.armed === id) { disarm(); return; }
-    if (id === 'lullaby') {
-      S.armed = 'lullaby';
+    if (Chess.ABILITIES[id].prep) {
+      S.armed = id; S.prep = null; S.abilFrom = -1; S.abilActs = [];
       S.selected = -1; S.targets = new Map();
       Sound.play('arm');
-      toast('Колыбельная: сделай ход — соперник пропустит свой');
+      if (id === 'lullaby') toast('Колыбельная: сделай ход — соперник пропустит свой');
+      if (id === 'berserk') toast('Берсерк: возьми фигуру ладьёй — она сходит ещё раз');
       renderSquares(); renderPanels();
       return;
     }
     const acts = g.abilityMoves();
     if (!acts.length) {
-      const why = { necro: 'Нечего воскрешать: все пешки на месте или 2-й ряд занят.', runner: 'Ни одна пешка не может прыгнуть сейчас.', kamikaze: 'Ни одна пешка не может так сходить.', tsar: 'Рядом с королём некого отбрасывать (или это подставит короля).' };
+      const why = { necro: 'Нечего воскрешать: все пешки на месте или 2-й ряд занят.', runner: 'Ни одна пешка не может прыгнуть сейчас.', kamikaze: 'Ни одна пешка не может так сходить.', tsar: 'Рядом с королём некого отбрасывать (или это подставит короля).', double: 'Нельзя поменяться ни с одной фигурой без шаха.', storm: 'Ветру нечего сдвигать.' };
       toast(why[id] || 'Сейчас нельзя применить', 3000);
       return;
     }
@@ -667,15 +831,35 @@
   }
   $$('.abil-chip').forEach((c) => { c.onclick = () => onChipClick(c); });
 
+  /** Нужно ли сейчас нажатием выбирать цель способности (а не делать обычный ход) */
+  function needsTap() {
+    const id = S.armed;
+    if (!id || id === 'lullaby' || id === 'berserk') return false;
+    if ((id === 'jester' || id === 'blackhole') && S.prep) return false;
+    return true;
+  }
+
   /** Нажатие на доску во время применения способности. true — нажатие обработано */
   function abilityTap(sq) {
-    const id = S.armed;
-    if (!id || id === 'lullaby') return false;
+    const id = S.armed, g = S.game;
+    if (id === 'jester') {
+      const p = g.board[sq];
+      if (p && p[0] !== g.turn && p[1] !== 'K') { S.prep = { j: sq }; Sound.play('arm'); renderSquares(); renderPanels(); return true; }
+      disarm(); return true;
+    }
+    if (id === 'blackhole') {
+      if (!g.board[sq] && !g.isHole(sq)) { S.prep = { h: sq }; Sound.play('arm'); renderSquares(); renderPanels(); return true; }
+      disarm(); return true;
+    }
     const acts = S.abilActs;
     let act = null;
-    if (id === 'necro') act = acts.find((m) => m.to === sq);
+    if (id === 'necro' || id === 'double') act = acts.find((m) => m.to === sq);
     else if (id === 'tsar') act = sq === acts[0].from ? acts[0] : null;
-    else if (S.abilFrom >= 0) {
+    else if (id === 'storm') {
+      const row = sq >> 3, col = sq & 7;
+      if (S.abilFrom === row && (col === 0 || col === 7)) act = acts.find((m) => m.from === row && m.to === (col === 7 ? 1 : -1));
+      if (!act && acts.some((m) => m.from === row)) { S.abilFrom = row; renderSquares(); renderPanels(); return true; }
+    } else if (S.abilFrom >= 0) {
       act = acts.find((m) => m.from === S.abilFrom && m.to === sq);
       if (!act && acts.some((m) => m.from === sq)) { S.abilFrom = sq; renderSquares(); renderPanels(); return true; }
     } else if (acts.some((m) => m.from === sq)) {
@@ -716,7 +900,7 @@
     if (e.button > 0) return;
     const sq = squareAt(e.clientX, e.clientY);
     if (sq < 0) return;
-    if (S.armed && S.armed !== 'lullaby') { if (canInteract()) abilityTap(sq); else disarm(); return; }
+    if (S.armed && needsTap()) { if (canInteract()) abilityTap(sq); else disarm(); return; }
     const p = S.game.board[sq];
 
     if (S.selected >= 0 && S.targets.has(sq)) { tryMove(S.selected, sq, false); return; }
@@ -771,18 +955,35 @@
   boardEl.addEventListener('pointercancel', (e) => endDrag(e, true));
   boardEl.addEventListener('contextmenu', (e) => e.preventDefault());
 
+  /** Флаги «подготовленных» способностей для обычного хода (или null — ход нельзя) */
+  function prepFlags(from, to, m) {
+    const f = {};
+    if (S.armed === 'lullaby') f.l = 1;
+    if (S.armed === 'berserk') {
+      if (m.p[1] === 'R' && m.cap) f.b = 1;
+      else toast('Берсерк не сработал: нужно взятие ладьёй', 2600);
+    }
+    if (S.armed === 'jester' && S.prep && to !== S.prep.j) f.j = S.prep.j;
+    if (S.armed === 'blackhole' && S.prep) {
+      if (to === S.prep.h) { toast('Нельзя ходить в свою же дыру — выбери другой ход'); return null; }
+      f.h = S.prep.h;
+    }
+    return f;
+  }
+
   function tryMove(from, to, dropped) {
     const cands = S.targets.get(to);
     if (!cands) return;
-    const lull = S.armed === 'lullaby' ? 1 : undefined;
+    const flags = prepFlags(from, to, cands[0]);
+    if (!flags) { S.selected = -1; S.targets = new Map(); render(); return; }
     if (cands.length > 1 && cands[0].promo) {
       promotionPicker(cands[0].p[0], (promo) => {
         if (!promo) { render(); return; }
-        applyAct({ k: 'm', f: from, t: to, p: promo, l: lull }, 'me', true);
+        applyAct(Object.assign({ k: 'm', f: from, t: to, p: promo }, flags), 'me', true);
       });
       return;
     }
-    applyAct({ k: 'm', f: from, t: to, p: cands[0].promo || undefined, l: lull }, 'me', dropped);
+    if (!applyAct(Object.assign({ k: 'm', f: from, t: to, p: cands[0].promo || undefined }, flags), 'me', dropped)) render();
   }
 
   function promotionPicker(color, cb) {
@@ -800,6 +1001,9 @@
     const o = { k: d.k || 'm', f: d.f, t: d.t };
     if (d.p) o.p = d.p;
     if (d.l) o.l = 1;
+    if (d.b) o.b = 1;
+    if (d.j >= 0) o.j = d.j;
+    if (d.h >= 0) o.h = d.h;
     return o;
   }
 
@@ -810,7 +1014,7 @@
     const wasLullArmed = S.armed === 'lullaby';
     S.selected = -1;
     S.targets = new Map();
-    S.armed = null; S.abilFrom = -1; S.abilActs = [];
+    S.armed = null; S.abilFrom = -1; S.abilActs = []; S.prep = null;
     S.sleepNote = !!mv.slept;
     render(mv.kind || noAnim ? null : mv);
 
@@ -828,14 +1032,19 @@
       if (mv.vamp >= 0) { vampireFx(mv); setTimeout(() => Sound.play('vampire'), 120); }
       if (mv.slept) { lullabyFx(mv); Sound.play('lullaby'); flashChip(mv.color); }
       else if (wasLullArmed && d.l && source === 'me') toast('Шах разбудил соперника — Колыбельная не потрачена', 3000);
+      if (mv.rage) { berserkFx(mv); Sound.play('berserk'); flashChip(mv.color); }
+      else if (d.b && source === 'me') toast('Шах! Второго хода нет — Берсерк не потрачен', 3000);
+      if (mv.jest >= 0) { jesterFx(mv.jest); Sound.play('jester'); flashChip(mv.color); }
+      if (mv.hole >= 0) { holeFx(mv.hole); Sound.play('hole'); flashChip(mv.color); }
     }
+    if (mv.swallow && mv.swallow.length) swallowFx(mv);
     if (navigator.vibrate && source === 'opp') navigator.vibrate(15);
 
     if (S.mode === 'online' && source === 'me') S.net.send({ type: 'act', a: d, ply: S.game.history.length });
 
     const st = S.game.status();
     if (st) finish({ winner: st.winner, reason: st.type }, false, mv.kind ? 1100 : 650);
-    else if (S.mode === 'bot' && S.game.turn !== S.myColor) botMove(mv.kind || mv.slept ? 900 : 0);
+    else if (S.mode === 'bot' && S.game.turn !== S.myColor) botMove(mv.kind || mv.slept || mv.rage || mv.jest >= 0 || mv.hole >= 0 ? 900 : 0);
     saveLocalGame();
     return mv;
   }

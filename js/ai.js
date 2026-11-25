@@ -22,12 +22,14 @@
   // «Цена» траты способности: бот применяет её, только если она даёт заметную выгоду
   const ABILITY_COST = 60;
 
-  // Уровни сложности
+  // Уровни сложности.
+  // noise — случайный разброс оценки ходов (в сотых пешки),
+  // blunder — шанс сделать почти случайный ход вместо продуманного.
   const LEVELS = {
-    1: { depth: 1, time: 300, noise: 120, name: 'Новичок' },
-    2: { depth: 2, time: 600, noise: 35, name: 'Любитель' },
-    3: { depth: 4, time: 1200, noise: 0, name: 'Опытный' },
-    4: { depth: 7, time: 2600, noise: 0, name: 'Мастер' },
+    1: { depth: 1, time: 250, noise: 260, blunder: 0.3, name: 'Новичок' },
+    2: { depth: 2, time: 500, noise: 110, blunder: 0.12, name: 'Любитель' },
+    3: { depth: 3, time: 900, noise: 45, blunder: 0.05, name: 'Опытный' },
+    4: { depth: 5, time: 1800, noise: 15, blunder: 0.015, name: 'Мастер' },
   };
 
   function evaluate(g) {
@@ -123,7 +125,7 @@
       let best = null, bestV = -Infinity, alpha = -Infinity;
       const scored = [];
       for (const m of moves) {
-        const special = !!(m.kind || m.lull);
+        const special = !!(m.kind || m.lull || m.berserk || m.jest >= 0 || m.hole >= 0);
         g.make(m);
         let v;
         // после Колыбельной снова ходим мы — оценка без смены знака
@@ -140,11 +142,30 @@
     }
   }
 
-  /** Все кандидаты на корне: обычные ходы, способности, ходы с Колыбельной */
+  /** Все кандидаты на корне: обычные ходы, способности и ходы с «подготовленными» способностями */
   function rootMoves(g) {
+    const me = g.turn, foe = me === 'w' ? 'b' : 'w';
     const moves = g.legalMoves();
     const extra = g.abilityMoves();
-    if (g.canLull()) for (const m of moves) extra.push(Object.assign({}, m, { lull: true }));
+    if (g.ready(me, 'lullaby')) for (const m of moves) extra.push(Object.assign({}, m, { lull: true }));
+    if (g.ready(me, 'berserk')) for (const m of moves) if (m.p[1] === 'R' && m.cap) extra.push(Object.assign({}, m, { berserk: true }));
+    if (g.ready(me, 'jester')) {
+      // заколдовываем самую ценную фигуру соперника
+      let best = -1, bv = 0;
+      g.board.forEach((p, sq) => { if (p && p[0] === foe && p[1] !== 'K' && VAL[p[1]] > bv) { bv = VAL[p[1]]; best = sq; } });
+      if (best >= 0) for (const m of moves) if (m.to !== best) extra.push(Object.assign({}, m, { jest: best }));
+    }
+    if (g.ready(me, 'blackhole')) {
+      // дыра на пустых клетках, куда соперник хотел бы пойти ценными фигурами
+      const want = new Map();
+      for (const m of g.pseudoMoves(foe)) {
+        if (g.board[m.to] || m.p[1] === 'K' || m.p[1] === 'P') continue;
+        want.set(m.to, Math.max(want.get(m.to) || 0, VAL[m.p[1]]));
+      }
+      const spots = [...want.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map((e) => e[0]);
+      const top = moves.slice().sort((a, b) => orderScore(b) - orderScore(a)).slice(0, 8);
+      for (const h of spots) for (const m of top) if (m.to !== h && m.from !== h) extra.push(Object.assign({}, m, { hole: h }));
+    }
     return moves.concat(extra);
   }
 
@@ -164,7 +185,16 @@
       if (Math.abs(r.bestV) > MATE - 100) break; // нашли мат
     }
 
-    // На лёгких уровнях бот иногда выбирает не самый сильный ход
+    // Иногда бот «зевает»: берёт случайный ход из не самых плохих
+    if (cfg.blunder && scored && scored.length > 2 && Math.random() < cfg.blunder) {
+      const sorted = scored.slice().sort((a, b) => b.v - a.v);
+      const bestV = sorted[0].v;
+      // не отдаём мат и не зеваем больше ферзя — иначе играть совсем неинтересно
+      const pool = sorted.filter((x) => x.v > bestV - 900 && x.v > -MATE + 100);
+      if (pool.length > 1) return pool[1 + ((Math.random() * (pool.length - 1)) | 0)].m;
+    }
+
+    // На всех уровнях бот иногда выбирает не самый сильный ход
     if (cfg.noise && scored && scored.length) {
       let pick = null, pv = -Infinity;
       for (const { m, v } of scored) {
