@@ -19,6 +19,8 @@
   };
 
   const MATE = 100000;
+  // «Цена» траты способности: бот применяет её, только если она даёт заметную выгоду
+  const ABILITY_COST = 60;
 
   // Уровни сложности
   const LEVELS = {
@@ -115,17 +117,21 @@
       return alpha;
     }
 
-    root(depth, prevBest, noise) {
-      const g = this.g;
-      const moves = g.legalMoves();
+    root(depth, prevBest, noise, moves) {
+      const g = this.g, me = g.turn;
       moves.sort((a, b) => orderScore(b, prevBest) - orderScore(a, prevBest));
       let best = null, bestV = -Infinity, alpha = -Infinity;
       const scored = [];
       for (const m of moves) {
+        const special = !!(m.kind || m.lull);
         g.make(m);
-        const v = -this.negamax(depth - 1, -Infinity, noise ? Infinity : -alpha, 1);
+        let v;
+        // после Колыбельной снова ходим мы — оценка без смены знака
+        if (g.turn === me) v = this.negamax(depth - 1, special || noise ? -Infinity : alpha, Infinity, 1);
+        else v = -this.negamax(depth - 1, -Infinity, special || noise ? Infinity : -alpha, 1);
         g.unmake(m);
         if (this.stopped) break;
+        if (special) v -= ABILITY_COST;
         scored.push({ m, v });
         if (v > bestV) { bestV = v; best = m; }
         if (!noise && v > alpha) alpha = v;
@@ -134,17 +140,25 @@
     }
   }
 
-  /** Возвращает лучший ход для текущей позиции. */
+  /** Все кандидаты на корне: обычные ходы, способности, ходы с Колыбельной */
+  function rootMoves(g) {
+    const moves = g.legalMoves();
+    const extra = g.abilityMoves();
+    if (g.canLull()) for (const m of moves) extra.push(Object.assign({}, m, { lull: true }));
+    return moves.concat(extra);
+  }
+
+  /** Возвращает лучший ход (или действие способности) для текущей позиции. */
   function bestMove(g, level = 3) {
     const cfg = LEVELS[level] || LEVELS[3];
-    const moves = g.legalMoves();
-    if (!moves.length) return null;
-    if (moves.length === 1) return moves[0];
+    const all = rootMoves(g);
+    if (!all.length) return null;
+    if (all.length === 1) return all[0];
 
     const s = new Search(g, cfg.time);
     let best = null, scored = null;
     for (let d = 1; d <= cfg.depth; d++) {
-      const r = s.root(d, best, cfg.noise);
+      const r = s.root(d, best, cfg.noise, all.slice());
       if (r.best && (r.complete || !best)) { best = r.best; scored = r.scored; }
       if (!r.complete) break;
       if (Math.abs(r.bestV) > MATE - 100) break; // нашли мат
@@ -159,7 +173,7 @@
       }
       best = pick;
     }
-    return best || moves[0];
+    return best || all[0];
   }
 
   root.ChessAI = { bestMove, LEVELS };

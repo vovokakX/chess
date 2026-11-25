@@ -1,8 +1,18 @@
 /*
- * Шахматный движок: правила, генерация ходов, шах/мат, ничьи.
+ * Шахматный движок: правила, генерация ходов, шах/мат, ничьи + способности.
  * Доска — массив из 64 клеток, индекс 0 = a8, 63 = h1.
  * Фигура — строка из двух символов: цвет (w/b) + тип (K Q R B N P), напр. "wN".
- * Написан с нуля, чтобы потом было удобно добавлять способности.
+ *
+ * Способности (у каждого игрока одна, см. ABILITIES):
+ *   necro    — Некромант: ставит свою пешку на свой 2-й ряд (3 раза)
+ *   runner   — Бегун: пешка прыгает ровно на 4 клетки по прямой (1 раз)
+ *   tsar     — Царь: король отбрасывает фигуры в радиусе 2 (1 раз)
+ *   kamikaze — Камикадзе: пешка ходит как ферзь на 1–2 клетки, при атаке взрывается вместе с целью (1 раз)
+ *   lullaby  — Колыбельная: соперник пропускает ход (1 раз)
+ *   vampire  — Вампир: пешка съела пешку → рядом появляется своя пешка (пассивно)
+ *
+ * Любое действие описывается компактным «дескриптором» {k, f, t, p, l}
+ * (вид, откуда, куда, превращение, колыбельная) — так ходы передаются по сети и боту.
  */
 (function (root) {
   'use strict';
@@ -15,13 +25,26 @@
   const DIAG = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
   const ORTHO = [[-1, 0], [1, 0], [0, -1], [0, 1]];
 
+  const ABILITIES = {
+    necro: { uses: 3 },
+    runner: { uses: 1 },
+    tsar: { uses: 1 },
+    kamikaze: { uses: 1 },
+    lullaby: { uses: 1 },
+    vampire: { uses: 0, passive: true },
+  };
+  const ABILITY_IDS = Object.keys(ABILITIES);
+
   const sqName = (i) => FILES[i & 7] + (8 - (i >> 3));
   const sqIndex = (n) => (8 - Number(n[1])) * 8 + FILES.indexOf(n[0]);
   const opp = (c) => (c === 'w' ? 'b' : 'w');
   const onBoard = (r, c) => r >= 0 && r < 8 && c >= 0 && c < 8;
+  const sign = (x) => (x > 0 ? 1 : x < 0 ? -1 : 0);
 
   class Game {
-    constructor(fen = START_FEN) {
+    /** abil — null (обычные шахматы) или {w: 'necro', b: 'tsar'} */
+    constructor(fen = START_FEN, abil = null) {
+      this.abil = abil ? { w: abil.w, b: abil.b } : null;
       this.load(fen);
     }
 
@@ -44,6 +67,10 @@
       this.ep = ep !== '-' ? sqIndex(ep) : -1;
       this.half = Number(half) || 0;
       this.full = Number(full) || 1;
+      this.uses = {
+        w: this.abil ? ABILITIES[this.abil.w].uses : 0,
+        b: this.abil ? ABILITIES[this.abil.b].uses : 0,
+      };
       this.history = [];
       this._stack = [];
       this.rep = new Map();
@@ -76,7 +103,7 @@
     _key() {
       let s = '';
       for (let i = 0; i < 64; i++) s += this.board[i] || '..';
-      return s + this.turn + this._castStr() + this.ep;
+      return s + this.turn + this._castStr() + this.ep + '|' + this.uses.w + this.uses.b;
     }
 
     _bumpRep(d) {
@@ -90,26 +117,22 @@
     attacked(sq, by) {
       const b = this.board;
       const r = sq >> 3, c = sq & 7;
-      // пешки
       const pr = by === 'w' ? r + 1 : r - 1;
       const pawn = by + 'P';
       if (pr >= 0 && pr < 8) {
         if (c > 0 && b[pr * 8 + c - 1] === pawn) return true;
         if (c < 7 && b[pr * 8 + c + 1] === pawn) return true;
       }
-      // конь
       const kn = by + 'N';
       for (const [dr, dc] of KNIGHT) {
         const rr = r + dr, cc = c + dc;
         if (onBoard(rr, cc) && b[rr * 8 + cc] === kn) return true;
       }
-      // король
       const kg = by + 'K';
       for (const [dr, dc] of KING) {
         const rr = r + dr, cc = c + dc;
         if (onBoard(rr, cc) && b[rr * 8 + cc] === kg) return true;
       }
-      // дальнобойные
       const q = by + 'Q', rk = by + 'R', bs = by + 'B';
       for (const [dr, dc] of ORTHO) {
         let rr = r + dr, cc = c + dc;
@@ -134,11 +157,12 @@
       return this.attacked(this.kings[color], opp(color));
     }
 
-    /* ---------- генерация ходов ---------- */
+    /* ---------- обычные ходы ---------- */
 
     pseudoMoves(color = this.turn, capturesOnly = false) {
       const b = this.board, out = [];
       const enemy = opp(color);
+      const vampire = this.abil && this.abil[color] === 'vampire';
       const add = (from, to, p, flag = '', cap = b[to]) => {
         if (capturesOnly && !cap) return;
         out.push({ from, to, p, cap: cap || null, promo: null, flag });
@@ -154,11 +178,13 @@
           const startRow = color === 'w' ? 6 : 1;
           const promoRow = color === 'w' ? 0 : 7;
           const r1 = r + dir;
-          const pushPawn = (to, cap, flag = '') => {
+          const pushPawn = (to, cap) => {
             if ((to >> 3) === promoRow) {
-              for (const pr of ['Q', 'R', 'B', 'N']) out.push({ from: sq, to, p, cap: cap || null, promo: pr, flag });
+              for (const pr of ['Q', 'R', 'B', 'N']) out.push({ from: sq, to, p, cap: cap || null, promo: pr, flag: '' });
             } else if (!capturesOnly || cap) {
-              out.push({ from: sq, to, p, cap: cap || null, promo: null, flag });
+              const m = { from: sq, to, p, cap: cap || null, promo: null, flag: '' };
+              if (vampire && cap && cap[1] === 'P') m.vamp = this._vampSpawn(sq, to, to, color);
+              out.push(m);
             }
           };
           if (r1 >= 0 && r1 < 8) {
@@ -175,7 +201,11 @@
               if (cc < 0 || cc > 7) continue;
               const to = r1 * 8 + cc;
               if (b[to] && b[to][0] === enemy) pushPawn(to, b[to]);
-              else if (to === this.ep) out.push({ from: sq, to, p, cap: enemy + 'P', promo: null, flag: 'e' });
+              else if (to === this.ep && b[to - dir * 8] === enemy + 'P') {
+                const m = { from: sq, to, p, cap: enemy + 'P', promo: null, flag: 'e' };
+                if (vampire) m.vamp = this._vampSpawn(sq, to, to - dir * 8, color);
+                out.push(m);
+              }
             }
           }
           continue;
@@ -206,6 +236,22 @@
       return out;
     }
 
+    /** Вампир: куда поставить новую пешку рядом с убитой (или -1) */
+    _vampSpawn(from, to, capSq, color) {
+      const b = this.board;
+      const back = color === 'w' ? 1 : -1;
+      const r = capSq >> 3, c = capSq & 7;
+      const order = [[0, -1], [0, 1], [back, 0], [back, -1], [back, 1], [-back, -1], [-back, 1], [-back, 0]];
+      for (const [dr, dc] of order) {
+        const rr = r + dr, cc = c + dc;
+        if (!onBoard(rr, cc) || rr === 0 || rr === 7) continue;
+        const s = rr * 8 + cc;
+        if (s === to) continue;
+        if (!b[s] || s === from || s === capSq) return s;
+      }
+      return -1;
+    }
+
     _castleMoves(color, sq, out) {
       const b = this.board, cr = this.castling, e = opp(color);
       if (color === 'w' && sq === 60) {
@@ -221,9 +267,9 @@
       }
     }
 
-    legalMoves(color = this.turn, capturesOnly = false) {
+    _legalFilter(list, color) {
       const res = [];
-      for (const m of this.pseudoMoves(color, capturesOnly)) {
+      for (const m of list) {
         this.make(m);
         if (!this.attacked(this.kings[color], opp(color))) res.push(m);
         this.unmake(m);
@@ -231,38 +277,154 @@
       return res;
     }
 
+    legalMoves(color = this.turn, capturesOnly = false) {
+      return this._legalFilter(this.pseudoMoves(color, capturesOnly), color);
+    }
+
     movesFrom(sq) {
       return this.legalMoves().filter((m) => m.from === sq);
+    }
+
+    /* ---------- способности ---------- */
+
+    abilityOf(color) { return this.abil ? this.abil[color] : null; }
+
+    canLull(color = this.turn) {
+      return this.abilityOf(color) === 'lullaby' && this.uses[color] > 0;
+    }
+
+    /** Активные способности стороны: список легальных действий */
+    abilityMoves(color = this.turn) {
+      const id = this.abilityOf(color);
+      if (!id || ABILITIES[id].passive || id === 'lullaby' || !(this.uses[color] > 0)) return [];
+      const b = this.board, enemy = opp(color), P = color + 'P';
+      const backRow = color === 'w' ? 7 : 0, promoRow = color === 'w' ? 0 : 7;
+      const land = (to) => ((to >> 3) === promoRow ? color + 'Q' : P);
+      const raw = [];
+
+      if (id === 'necro') {
+        let pawns = 0;
+        for (const p of b) if (p === P) pawns++;
+        if (pawns < 8) {
+          const row = color === 'w' ? 6 : 1;
+          for (let c = 0; c < 8; c++) {
+            const s = row * 8 + c;
+            if (!b[s]) raw.push({ kind: 'necro', p: P, from: -1, to: s, cap: null, diff: [[s, null, P]] });
+          }
+        }
+      } else if (id === 'runner' || id === 'kamikaze') {
+        for (let sq = 0; sq < 64; sq++) {
+          if (b[sq] !== P) continue;
+          const r = sq >> 3, c = sq & 7;
+          if (id === 'runner') {
+            for (const [dr, dc] of ORTHO) {
+              const rr = r + 4 * dr, cc = c + 4 * dc;
+              if (!onBoard(rr, cc) || rr === backRow) continue;
+              const to = rr * 8 + cc, t = b[to];
+              if (t && (t[0] === color || t[1] === 'K')) continue;
+              raw.push({ kind: 'runner', p: P, from: sq, to, cap: t || null, diff: [[sq, P, null], [to, t, land(to)]] });
+            }
+          } else {
+            for (const [dr, dc] of KING) {
+              for (let step = 1; step <= 2; step++) {
+                const rr = r + dr * step, cc = c + dc * step;
+                if (!onBoard(rr, cc)) break;
+                const to = rr * 8 + cc, t = b[to];
+                if (!t) {
+                  if (rr !== backRow) raw.push({ kind: 'kamikaze', p: P, from: sq, to, cap: null, diff: [[sq, P, null], [to, null, land(to)]] });
+                  continue;
+                }
+                if (t[0] === enemy && t[1] !== 'K') raw.push({ kind: 'kamikaze', p: P, from: sq, to, cap: t, diff: [[sq, P, null], [to, t, null]] });
+                break;
+              }
+            }
+          }
+        }
+      } else if (id === 'tsar') {
+        const m = this._tsarMove(color);
+        if (m) raw.push(m);
+      }
+      return this._legalFilter(raw, color);
+    }
+
+    _tsarMove(color) {
+      const k = this.kings[color], kr = k >> 3, kc = k & 7;
+      const nb = this.board.slice();
+      const list = [];
+      for (let dr = -2; dr <= 2; dr++) {
+        for (let dc = -2; dc <= 2; dc++) {
+          if (!dr && !dc) continue;
+          const r = kr + dr, c = kc + dc;
+          if (!onBoard(r, c)) continue;
+          const p = nb[r * 8 + c];
+          if (p && p[1] !== 'K' && p[1] !== 'Q') list.push({ s: r * 8 + c, d: Math.max(Math.abs(dr), Math.abs(dc)), dr, dc });
+        }
+      }
+      list.sort((a, b) => b.d - a.d); // дальние первыми — освобождают место ближним
+      const pushes = [];
+      for (const it of list) {
+        const sr = sign(it.dr), sc = sign(it.dc), p = nb[it.s];
+        let cur = it.s;
+        for (let step = 0; step < 2; step++) {
+          const nr = (cur >> 3) + sr, nc = (cur & 7) + sc;
+          if (!onBoard(nr, nc)) break;
+          const ns = nr * 8 + nc;
+          if (nb[ns]) break;
+          if (p[1] === 'P' && (nr === 0 || nr === 7)) break;
+          cur = ns;
+        }
+        if (cur !== it.s) { nb[cur] = p; nb[it.s] = null; pushes.push({ from: it.s, to: cur, p }); }
+      }
+      if (!pushes.length) return null;
+      const diff = [];
+      for (let i = 0; i < 64; i++) if (this.board[i] !== nb[i]) diff.push([i, this.board[i], nb[i]]);
+      return { kind: 'tsar', p: color + 'K', from: k, to: -1, cap: null, pushes, diff };
     }
 
     /* ---------- сделать / отменить ход (низкий уровень) ---------- */
 
     make(m) {
       const b = this.board, color = m.p[0];
-      this._stack.push({ K: this.castling.K, Q: this.castling.Q, k: this.castling.k, q: this.castling.q, ep: this.ep, half: this.half, full: this.full });
+      this._stack.push({
+        K: this.castling.K, Q: this.castling.Q, k: this.castling.k, q: this.castling.q,
+        ep: this.ep, half: this.half, full: this.full, uw: this.uses.w, ub: this.uses.b, turn: this.turn,
+      });
 
-      b[m.to] = m.promo ? color + m.promo : m.p;
-      b[m.from] = null;
-      if (m.flag === 'e') b[m.to + (color === 'w' ? 8 : -8)] = null;
-      else if (m.flag === 'k') { const rf = color === 'w' ? 63 : 7; b[rf - 2] = b[rf]; b[rf] = null; }
-      else if (m.flag === 'q') { const rf = color === 'w' ? 56 : 0; b[rf + 3] = b[rf]; b[rf] = null; }
-
-      if (m.p[1] === 'K') {
-        this.kings[color] = m.to;
-        if (color === 'w') this.castling.K = this.castling.Q = false;
-        else this.castling.k = this.castling.q = false;
+      if (m.kind) {
+        for (const d of m.diff) b[d[0]] = d[2];
+        this.uses[color]--;
+        this.ep = -1;
+        this.half = 0;
+      } else {
+        b[m.to] = m.promo ? color + m.promo : m.p;
+        b[m.from] = null;
+        if (m.flag === 'e') b[m.to + (color === 'w' ? 8 : -8)] = null;
+        else if (m.flag === 'k') { const rf = color === 'w' ? 63 : 7; b[rf - 2] = b[rf]; b[rf] = null; }
+        else if (m.flag === 'q') { const rf = color === 'w' ? 56 : 0; b[rf + 3] = b[rf]; b[rf] = null; }
+        if (m.vamp >= 0) b[m.vamp] = color + 'P';
+        if (m.p[1] === 'K') this.kings[color] = m.to;
+        this.ep = m.flag === 'd' ? (m.from + m.to) >> 1 : -1;
+        this.half = m.p[1] === 'P' || m.cap ? 0 : this.half + 1;
       }
-      for (const s of [m.from, m.to]) {
-        if (s === 63) this.castling.K = false;
-        else if (s === 56) this.castling.Q = false;
-        else if (s === 7) this.castling.k = false;
-        else if (s === 0) this.castling.q = false;
-      }
 
-      this.ep = m.flag === 'd' ? (m.from + m.to) >> 1 : -1;
-      this.half = m.p[1] === 'P' || m.cap ? 0 : this.half + 1;
+      // права на рокировку пропадают, если король или ладья ушли со своих мест
+      const cr = this.castling;
+      if (b[60] !== 'wK') cr.K = cr.Q = false;
+      if (b[63] !== 'wR') cr.K = false;
+      if (b[56] !== 'wR') cr.Q = false;
+      if (b[4] !== 'bK') cr.k = cr.q = false;
+      if (b[7] !== 'bR') cr.k = false;
+      if (b[0] !== 'bR') cr.q = false;
+
       if (color === 'b') this.full++;
       this.turn = opp(color);
+
+      // Колыбельная: соперник спит, если только он не под шахом
+      if (m.lull && !this.attacked(this.kings[this.turn], color)) {
+        this.turn = color;
+        this.uses[color]--;
+        this.ep = -1;
+      }
     }
 
     unmake(m) {
@@ -270,8 +432,14 @@
       const st = this._stack.pop();
       this.castling = { K: st.K, Q: st.Q, k: st.k, q: st.q };
       this.ep = st.ep; this.half = st.half; this.full = st.full;
-      this.turn = color;
+      this.uses.w = st.uw; this.uses.b = st.ub;
+      this.turn = st.turn;
 
+      if (m.kind) {
+        for (let i = m.diff.length - 1; i >= 0; i--) b[m.diff[i][0]] = m.diff[i][1];
+        return;
+      }
+      if (m.vamp >= 0) b[m.vamp] = null;
       b[m.from] = m.p;
       if (m.flag === 'e') { b[m.to] = null; b[m.to + (color === 'w' ? 8 : -8)] = m.cap; }
       else b[m.to] = m.cap;
@@ -280,24 +448,47 @@
       if (m.p[1] === 'K') this.kings[color] = m.from;
     }
 
-    /* ---------- публичный ход ---------- */
+    /* ---------- публичные действия ---------- */
 
-    /** move({from, to, promo}) — from/to: индекс или "e2". Возвращает ход с SAN или null. */
-    move(input) {
-      const from = typeof input.from === 'string' ? sqIndex(input.from) : input.from;
-      const to = typeof input.to === 'string' ? sqIndex(input.to) : input.to;
-      const legal = this.legalMoves();
-      const cands = legal.filter((m) => m.from === from && m.to === to);
-      if (!cands.length) return null;
-      const m = cands.find((x) => x.promo === (input.promo || 'Q')) || cands[0];
-      const san = this._san(m, legal);
+    /** Выполнить действие по дескриптору {k, f, t, p, l}. Возвращает ход с san или null. */
+    act(d) {
+      const mover = this.turn;
+      let m, san;
+      if (!d.k || d.k === 'm') {
+        const legal = this.legalMoves();
+        const cands = legal.filter((x) => x.from === d.f && x.to === d.t);
+        if (!cands.length) return null;
+        m = cands.find((x) => x.promo === (d.p || 'Q')) || cands[0];
+        san = this._san(m, legal);
+        if (d.l) {
+          if (!this.canLull()) return null;
+          m = Object.assign({}, m, { lull: true });
+        }
+      } else {
+        m = this.abilityMoves().find((x) => x.kind === d.k && x.from === d.f && x.to === d.t);
+        if (!m) return null;
+        san = this._abilSan(m);
+      }
       this.make(m);
-      const mv = Object.assign({}, m, { san, uci: Game.uci(m) });
-      if (this.legalMoves().length === 0 && this.inCheck()) mv.san += '#';
-      else if (this.inCheck()) mv.san += '+';
+      const mv = Object.assign({}, m, { san, d: Game.desc(m), color: mover });
+      mv.slept = !!m.lull && this.turn === mover;
+      const foe = opp(mover);
+      if (this.attacked(this.kings[foe], mover)) {
+        const mate = this.turn === foe && !this.legalMoves().length && !this.abilityMoves().length;
+        mv.san += mate ? '#' : '+';
+      }
+      if (mv.slept) mv.san += ' ☾';
+      if (mv.vamp >= 0) mv.san += ' ♥';
       this.history.push(mv);
       this._bumpRep(1);
       return mv;
+    }
+
+    /** Совместимость: move({from, to, promo}) */
+    move(input) {
+      const f = typeof input.from === 'string' ? sqIndex(input.from) : input.from;
+      const t = typeof input.to === 'string' ? sqIndex(input.to) : input.to;
+      return this.act({ k: 'm', f, t, p: input.promo });
     }
 
     moveUci(uci) {
@@ -336,9 +527,20 @@
       return s + sqName(m.to);
     }
 
+    _abilSan(m) {
+      switch (m.kind) {
+        case 'necro': return '✦' + sqName(m.to);
+        case 'runner': return '✦' + sqName(m.from) + (m.cap ? '×' : '»') + sqName(m.to);
+        case 'kamikaze': return '✦' + sqName(m.from) + (m.cap ? '✕' : '→') + sqName(m.to);
+        case 'tsar': return '✦K⟳';
+        default: return '✦';
+      }
+    }
+
     /* ---------- статус партии ---------- */
 
     insufficientMaterial() {
+      if (this.abil) return false; // способности могут вернуть материал
       const minors = [];
       for (let i = 0; i < 64; i++) {
         const p = this.board[i];
@@ -356,7 +558,7 @@
 
     /** null — игра продолжается, иначе {type, winner} */
     status() {
-      if (this.legalMoves().length === 0) {
+      if (this.legalMoves().length === 0 && this.abilityMoves().length === 0) {
         return this.inCheck() ? { type: 'checkmate', winner: opp(this.turn) } : { type: 'stalemate', winner: null };
       }
       if (this.insufficientMaterial()) return { type: 'insufficient', winner: null };
@@ -365,10 +567,17 @@
       return null;
     }
 
+    static desc(m) {
+      const d = { k: m.kind || 'm', f: m.from, t: m.to };
+      if (m.promo) d.p = m.promo;
+      if (m.lull) d.l = 1;
+      return d;
+    }
+
     static uci(m) {
       return sqName(m.from) + sqName(m.to) + (m.promo ? m.promo.toLowerCase() : '');
     }
   }
 
-  root.Chess = { Game, START_FEN, sqName, sqIndex, opp };
+  root.Chess = { Game, START_FEN, ABILITIES, ABILITY_IDS, sqName, sqIndex, opp };
 })(typeof self !== 'undefined' ? self : this);

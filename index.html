@@ -17,6 +17,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="abilities.css">
 </head>
 <body>
   <!-- Набор иконок интерфейса -->
@@ -36,6 +37,13 @@
       <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16.5 8.5a5 5 0 010 7M19 6a8.5 8.5 0 010 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
       <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M17 9l5 6m0-6l-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
       <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2l2.2 6.3L20.5 10l-6.3 2.2L12 18.5l-2.2-6.3L3.5 10l6.3-1.7z" fill="currentColor"/></symbol>
+      <!-- Иконки способностей -->
+      <symbol id="a-necro" viewBox="0 0 24 24"><path d="M12 2.5c-4.6 0-8.2 3.4-8.2 7.8 0 2.6 1.3 4.8 3.2 6v2.6c0 .7.5 1.1 1.1 1.1h1.6v-2h1.3v2h2v-2h1.3v2H16c.6 0 1.1-.4 1.1-1.1v-2.6c1.9-1.2 3.2-3.4 3.2-6 0-4.4-3.7-7.8-8.3-7.8z" fill="currentColor"/><circle cx="8.8" cy="10.6" r="2" fill="#14161b"/><circle cx="15.2" cy="10.6" r="2" fill="#14161b"/><path d="M12 13l-1.1 2.2h2.2z" fill="#14161b"/></symbol>
+      <symbol id="a-runner" viewBox="0 0 24 24"><path d="M13.5 1.5L4 13.5h6.5l-1.5 9 10-12.5h-6.6z" fill="currentColor"/></symbol>
+      <symbol id="a-tsar" viewBox="0 0 24 24"><path d="M2.5 7.5l5 4.3L12 4.5l4.5 7.3 5-4.3-2.2 10.5H4.7z" fill="currentColor"/><rect x="4.7" y="19" width="14.6" height="2.4" rx="1.2" fill="currentColor"/><circle cx="12" cy="13.5" r="1.4" fill="#14161b"/></symbol>
+      <symbol id="a-kamikaze" viewBox="0 0 24 24"><circle cx="10" cy="14.5" r="7" fill="currentColor"/><path d="M14.6 9.2l2.2-2.2" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><path d="M18.2 5.6c.4-1.3 1.6-2 2.8-1.6M20.6 7.6l1.5.3M18.6 2.3l.2 1.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/><circle cx="7.6" cy="12" r="1.6" fill="#14161b" opacity=".35"/></symbol>
+      <symbol id="a-lullaby" viewBox="0 0 24 24"><path d="M20.5 14.6A8.7 8.7 0 019.4 3.5a8.7 8.7 0 1011.1 11.1z" fill="currentColor"/><path d="M16 2.5l.6 1.5 1.5.6-1.5.6L16 6.7l-.6-1.5-1.5-.6 1.5-.6zM20 7.5l.4 1 1 .4-1 .4-.4 1-.4-1-1-.4 1-.4z" fill="currentColor"/></symbol>
+      <symbol id="a-vampire" viewBox="0 0 24 24"><path d="M12 2S5 10 5 14.8a7 7 0 0014 0C19 10 12 2 12 2z" fill="currentColor"/><path d="M8.6 13.2l1.2 3.4 1.2-3.4m2 0l1.2 3.4 1.2-3.4" stroke="#14161b" stroke-width="1.4" fill="none" stroke-linejoin="round"/></symbol>
     </defs>
   </svg>
 
@@ -49,10 +57,15 @@
             <img src="pieces/bR.svg" alt=""><img src="pieces/wN.svg" alt="" class="hero-main"><img src="pieces/bB.svg" alt="">
           </div>
           <h1 class="logo">Шахматы<span>+</span></h1>
-          <p class="tagline"><svg class="ico"><use href="#i-spark"/></svg> Скоро: способности</p>
+          <p class="tagline"><svg class="ico"><use href="#i-spark"/></svg> Новое: способности</p>
         </div>
 
         <div class="mode-list">
+          <button class="mode-card magic" data-go="abil">
+            <span class="mode-ico"><svg><use href="#i-spark"/></svg></span>
+            <span class="mode-text"><b>Игра со способностями</b><small>Колесо фортуны и 6 суперсил</small></span>
+            <span class="magic-icons" aria-hidden="true"><svg style="color:#7be0a1"><use href="#a-necro"/></svg><svg style="color:#f0c77e"><use href="#a-tsar"/></svg><svg style="color:#ff7a45"><use href="#a-kamikaze"/></svg></span>
+          </button>
           <button class="mode-card" data-go="bot">
             <span class="mode-ico"><svg><use href="#i-cpu"/></svg></span>
             <span class="mode-text"><b>Играть с ботом</b><small>4 уровня сложности</small></span>
@@ -74,12 +87,38 @@
       </div>
     </section>
 
+    <!-- ================= СПОСОБНОСТИ ================= -->
+    <section class="screen" id="screen-abil">
+      <div class="panel-wrap">
+        <header class="screen-head">
+          <button class="icon-btn" data-go="menu"><svg><use href="#i-back"/></svg></button>
+          <h2>Со способностями</h2>
+        </header>
+        <p class="muted abil-lead">Перед партией колесо фортуны выдаст белым и чёрным по одной способности.</p>
+        <div class="abil-gallery" id="abil-gallery"></div>
+        <div class="mode-list">
+          <button class="mode-card" data-abil-go="bot">
+            <span class="mode-ico"><svg><use href="#i-cpu"/></svg></span>
+            <span class="mode-text"><b>С ботом</b><small>Бот тоже умеет пользоваться способностями</small></span>
+          </button>
+          <button class="mode-card accent" data-abil-go="online">
+            <span class="mode-ico"><svg><use href="#i-globe"/></svg></span>
+            <span class="mode-text"><b>По сети</b><small>С другом — по коду или ссылке</small></span>
+          </button>
+          <button class="mode-card" data-abil-go="local">
+            <span class="mode-ico"><svg><use href="#i-users"/></svg></span>
+            <span class="mode-text"><b>Вживую</b><small>Вдвоём на одном устройстве</small></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- ================= НАСТРОЙКА БОТА ================= -->
     <section class="screen" id="screen-bot">
       <div class="panel-wrap">
         <header class="screen-head">
-          <button class="icon-btn" data-go="menu"><svg><use href="#i-back"/></svg></button>
-          <h2>Игра с ботом</h2>
+          <button class="icon-btn" id="bot-back"><svg><use href="#i-back"/></svg></button>
+          <h2 id="bot-title">Игра с ботом</h2>
         </header>
 
         <div class="field">
@@ -110,7 +149,7 @@
       <div class="panel-wrap">
         <header class="screen-head">
           <button class="icon-btn" id="online-back"><svg><use href="#i-back"/></svg></button>
-          <h2>Игра по сети</h2>
+          <h2 id="online-title">Игра по сети</h2>
         </header>
 
         <div id="online-setup">
@@ -170,6 +209,7 @@
           <div class="player" id="player-top">
             <div class="avatar"></div>
             <div class="pinfo"><b class="pname"></b><div class="captured"></div></div>
+            <button class="abil-chip hidden"></button>
             <div class="clock-dot"></div>
           </div>
 
@@ -177,12 +217,14 @@
             <div id="board" class="board">
               <div class="squares" id="squares"></div>
               <div class="pieces" id="pieces"></div>
+              <div class="fx" id="fx"></div>
             </div>
           </div>
 
           <div class="player" id="player-bottom">
             <div class="avatar"></div>
             <div class="pinfo"><b class="pname"></b><div class="captured"></div></div>
+            <button class="abil-chip hidden"></button>
             <div class="clock-dot"></div>
           </div>
         </div>
@@ -207,6 +249,7 @@
   <script src="js/engine.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/net.js"></script>
+  <script src="js/fx.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

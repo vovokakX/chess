@@ -1,8 +1,8 @@
 /* Офлайн-кэш: сначала сеть (чтобы обновления приходили сразу), при отсутствии сети — кэш. */
-const CACHE = 'chessplus-v1';
+const CACHE = 'chessplus-v2';
 const FILES = [
-  './', 'index.html', 'style.css', 'manifest.json',
-  'js/engine.js', 'js/ai.js', 'js/ai-worker.js', 'js/net.js', 'js/app.js', 'js/peerjs.min.js',
+  './', 'index.html', 'style.css', 'abilities.css', 'manifest.json',
+  'js/engine.js', 'js/ai.js', 'js/ai-worker.js', 'js/net.js', 'js/app.js', 'js/fx.js', 'js/peerjs.min.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   ...['w', 'b'].flatMap((c) => ['K', 'Q', 'R', 'B', 'N', 'P'].map((p) => `pieces/${c}${p}.svg`)),
 ];
